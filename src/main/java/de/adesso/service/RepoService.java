@@ -1,15 +1,15 @@
 package de.adesso.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.ListBranchCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
-import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.ObjectReader;
-import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.*;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.util.*;
 
 /**
@@ -69,15 +70,21 @@ public class RepoService {
      */
     public void cloneRemoteRepo() {
         String method = "cloneRemoteRepo";
+
         try {
             if (!localRepositoryExists()) {
-                localGit = Git.cloneRepository().setURI(REMOTE_REPO_URL).setDirectory(new File(LOCAL_REPO_PATH)).call();
+                // localGit = Git.cloneRepository().setURI(REMOTE_REPO_URL).setDirectory(new File(LOCAL_REPO_PATH)).call();
+                localGit = Git.cloneRepository().setURI(REMOTE_REPO_URL).setDirectory(new File(LOCAL_REPO_PATH))
+                        .setBranchesToClone(Collections.singleton("refs/heads/xml-html"))
+                        .setBranch("refs/heads/xml-html")
+                        .call();
                 LOGGER.info("Repository cloned successfully");
             } else {
                 LOGGER.warn("Remote repository is already cloned into local repository");
                 localGit = openLocalGit();
                 pullRemoteRepo();
             }
+            // listBranches();
         } catch (Exception e) {
             LOGGER.error("In method " + method + ": Error while cloning remote git respository", e);
         }
@@ -230,6 +237,9 @@ public class RepoService {
             Iterable<RevCommit> logs = git.log()
                     .addPath(relativeFilePath).call();
             for (RevCommit rev : logs) {
+                System.out.println(rev.getAuthorIdent().getName());
+                System.out.println(rev.getAuthorIdent().hashCode());
+                System.out.println(rev.getCommitterIdent().getName());
                 // alternative: rev.getCommitterIdent().getWhen(). Is of type Date and returns same result.
                 Date d = new Date(rev.getCommitTime() * 1000L);
                 postsMappedToListOfCommitTimes.get(relativeFilePath).add(d);
@@ -239,6 +249,44 @@ public class RepoService {
             e.printStackTrace();
         } catch (GitAPIException e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * retrieves the user id from the provided URL pointing to JSON that contains the user information.
+     *
+     * @param githubApiUsersUrl - a github API URL as String pointing to a JSON containing user information.
+     * @param username          - username of interest.
+     * @return user id as Long.
+     */
+    public Long retrieveGithubUserId(String githubApiUsersUrl, String username) {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode authorIdNode = null;
+        try {
+            authorIdNode = mapper.readTree(new URL(githubApiUsersUrl + username));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return authorIdNode.get("id").asLong();
+    }
+
+    public void listBranches() {
+        try (Repository repository = openLocalGit().getRepository()) {
+            System.out.println("Listing local branches:");
+            try (Git git = new Git(repository)) {
+                List<Ref> call = git.branchList().call();
+                for (Ref ref : call) {
+                    System.out.println("Branch: " + ref + " " + ref.getName() + " " + ref.getObjectId().getName());
+                }
+
+                System.out.println("Now including remote branches:");
+                call = git.branchList().setListMode(ListBranchCommand.ListMode.ALL).call();
+                for (Ref ref : call) {
+                    System.out.println("Branch: " + ref + " " + ref.getName() + " " + ref.getObjectId().getName());
+                }
+            } catch (GitAPIException e) {
+                e.printStackTrace();
+            }
         }
     }
 }
